@@ -13,13 +13,16 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-""" Send your local git repo changes to Travis CIwithout needless commits and pushes. """
+""" Send your local git repo changes to Travis CI without needless commits and pushes. """
 
+import time
 import getpass
 import platform
 import sys
 import os
+import re
 import colorama
+import git
 
 
 __title__ = 'trytravis'
@@ -53,58 +56,52 @@ else:
     config_dir = os.path.join(_home_dir, '.config', 'trytravis')
 del _home_dir
 
+try:
+    user_input = raw_input
+except NameError:
+    user_input = input
+
 
 class TryTravis(object):
     """ Object which can be used to submit jobs via `trytravis` programmatically. """
-    def __init__(self, path, output=False):
+    def __init__(self, path):
         self.path = path
-        self.output = output
-        self.github_token = None
-        self.travis_token = None
-        self.remote = None
+        self.slug = None
         self.build = None
         self.build_url = None
 
-        import requests
-        self.requests = requests
-
-    def start(self, watch=False):
-        self._load_personal_access_token()
-        self._exchange_personal_access_token()
-        self._load_trytravis_github()
+    def start(self):
+        self._load_trytravis_github_slug()
         self._submit_project_to_github()
         self._wait_for_travis_build()
-        if watch:
-            self._watch_travis_build()
+        self._watch_travis_build()
 
-    def _load_personal_access_token(self):
+    def _load_trytravis_github_slug(self):
         try:
-            with open(os.path.join(config_dir, 'personal_access_token'), 'r') as f:
-                self.github_token = f.read().strip()
+            with open(os.path.join(config_dir, 'slug'), 'r') as f:
+                self.slug = f.read()
         except (OSError, IOError):
-            raise RuntimeError('ERROR: Couldn\'t load your Personal '
-                               'Access Token. Run `trytravis token`.')
-
-    def _exchange_personal_access_token(self):
-        try:
-            with self.requests.post('https://api.travis.org/auth/github',
-                                    headers=self._travis_headers(),
-                                    json={'github_token': self.github_token}) as r:
-                if not r.ok:
-                    raise RuntimeError('ERROR: Couldn\'t exchange your Personal Access '
-                                       'Token for a Travis API token. Additional '
-                                       'information: %s' % str(r.content))
-                self.travis_token = r.json()['access_token']
-        except self.requests.RequestException as e:
-            raise RuntimeError('ERROR: Couldn\'t exchange your Personal Access '
-                               'Token for a Travis API token. Additional information: '
-                               '%s' % str(e))
-
-    def _load_trytravis_github(self):
-        raise NotImplementedError()
+            raise RuntimeError('Could not find your repository. Have you ran `trytravis --repo`?')
 
     def _submit_project_to_github(self):
-        raise NotImplementedError()
+        repo = git.Repo(self.path)
+        old_branch = repo.active_branch.name
+        try:
+            new_branch = 'trytravis-' + str(int(time.time() * 1000))
+            repo.git.checkout('HEAD', b=new_branch)
+            repo.git.add('--all')
+            repo.git.commit(m='trytravis')
+            try:
+                remote = repo.create_remote('trytravis', 'https://github.com/' + self.slug)
+            except:
+                pass
+            remote.push()
+        finally:
+            try:
+                repo.delete_remote('trytravis')
+            except:
+                pass
+            repo.git.checkout(old_branch)
 
     def _wait_for_travis_build(self):
         raise NotImplementedError()
@@ -113,78 +110,84 @@ class TryTravis(object):
         colorama.init()
         raise NotImplementedError()
 
-    def _travis_headers(self):
-        headers = {'User-Agent': 'trytravis/%s' % __version__,
-                   'Accept': 'application/vnd.travis-ci.2+json',
-                   'Host': 'api.travis.org'}
-        if self.travis_token is not None:
-            headers['Authorization'] = 'token ' + self.travis_token
-        return headers
-
 
 def main(argv=None):
     """ Main entry point when the user runs the `trytravis` command. """
-    if argv is None:
-        argv = sys.argv[1:]
+    try:
+        colorama.init()
+        if argv is None:
+            argv = sys.argv[1:]
 
-    token_input_argv = len(argv) == 2 and argv[0] in ['--token', '-t', '-T']
+        token_input_argv = len(argv) == 2 and argv[0] in ['--token', '-t', '-T']
 
-    # We only support a single argv parameter.
-    if len(argv) > 1 and not token_input_argv:
-        main(['--help'])
+        # We only support a single argv parameter.
+        if len(argv) > 1 and not token_input_argv:
+            main(['--help'])
 
-    # Parse the command and do the right thing.
-    if len(argv) == 1 or token_input_argv:
-        arg = argv[0]
+        # Parse the command and do the right thing.
+        if len(argv) == 1 or token_input_argv:
+            arg = argv[0]
 
-        # Help/usage
-        if arg in ['-h', '--help', '-H']:
-            print('usage: trytravis [command]?\n'
-                  '\n'
-                  '  [empty]               Running with no command submits your git repo to Travis.\n'
-                  '  --help, -h            Prints this help string.\n'
-                  '  --version, -v         Prints out the version, useful when submitting an issue.\n'
-                  '  --token, -t [token]?  Tells the program you wish to set your token\n'
-                  '\n'
-                  'If you\'re still having troubles feel free to open an issue at our\n'
-                  'issue tracker: https://github.com/SethMichaelLarson/trytravis/issues')
-            sys.exit(0)
+            # Help/usage
+            if arg in ['-h', '--help', '-H']:
+                print('usage: trytravis [command]?\n'
+                      '\n'
+                      '  [empty]               Running with no command submits your git repo to Travis.\n'
+                      '  --help, -h            Prints this help string.\n'
+                      '  --version, -v         Prints out the version, useful when submitting an issue.\n'
+                      '  --repo, -r [repo]?    Tells the program you wish to setup your building repository.\n'
+                      '\n'
+                      'If you\'re still having troubles feel free to open an issue at our\n'
+                      'issue tracker: https://github.com/SethMichaelLarson/trytravis/issues')
 
-        # Version
-        elif arg in ['-v', '--version', '-V']:
-            platform_system = platform.system()
-            if platform_system == 'Linux':
-                name, version, _ = platform.dist()
-            else:
-                name = platform_system
-                version = platform.version()
-            import requests
-            print('trytravis %s (%s %s, python %s, requests %s)' % (__version__,
-                                                                    name.lower(),
-                                                                    version,
-                                                                    platform.python_version(),
-                                                                    requests.__version__))
-            sys.exit(0)
+            # Version
+            elif arg in ['-v', '--version', '-V']:
+                platform_system = platform.system()
+                if platform_system == 'Linux':
+                    name, version, _ = platform.dist()
+                else:
+                    name = platform_system
+                    version = platform.version()
+                print('trytravis %s (%s %s, python %s)' % (__version__,
+                                                           name.lower(),
+                                                           version,
+                                                           platform.python_version()))
 
-        # Token
-        elif arg in ['-t', '--token', '-T']:
-            if len(argv) == 2:
-                token = argv[1]
-            else:
-                token = getpass.getpass('Enter your Personal Access Token: ')
-            token = token.strip()
-            if not os.path.isdir(config_dir):
-                os.makedirs(config_dir)
-            with open(os.path.join(config_dir, 'personal_access_token'), 'w+') as f:
-                f.truncate()
-                f.write(token)
-            print('Token saved successfully.')
-            sys.exit(0)
+            # Token
+            elif arg in ['-r', '--repo', '-R']:
+                if len(argv) == 2:
+                    url = argv[1]
+                else:
+                    url = user_input('Input the URL of the GitHub repository to use as a `trytravis` repository: ')
+                url = url.strip()
+                match = re.match(r'^https://(?:www\.)?github.com/([^/]+)/([^/]+)$', url)
+                if not match:
+                    raise RuntimeError('That URL doesn\'t look like a valid GitHub URL. We expect something'
+                                       'of the form: `https://github.com/[USERNAME]/[REPOSITORY]`')
 
-    # No arguments means we're trying to submit to Travis.
-    elif len(argv) == 0:
-        trytravis = TryTravis(os.getcwd(), output=True)
-        trytravis.start(watch=True)
+                # Make sure that the user actually wants to use this repository.
+                author, name = match.groups()
+                accept = user_input('Remember that `trytravis` will make commits on your behalf to '
+                                    '`https://github.com/%s/%s`. Are you sure you wish to use this '
+                                    'repository? Type `y` or `yes` to accept: ' % (author, name))
+                if accept.lower() not in ['y', 'yes']:
+                    raise RuntimeError('Operation aborted by user.')
+
+                if not os.path.isdir(config_dir):
+                    os.makedirs(config_dir)
+                with open(os.path.join(config_dir, 'slug'), 'w+') as f:
+                    f.truncate()
+                    f.write('/%s/%s' % (author, name))
+                print('Repository saved successfully.')
+
+        # No arguments means we're trying to submit to Travis.
+        elif len(argv) == 0:
+            trytravis = TryTravis(os.getcwd())
+            trytravis.start()
+    except RuntimeError as e:
+        print(colorama.Fore.RED + 'ERROR: ' + str(e) + colorama.Style.RESET_ALL)
+        sys.exit(1)
+    else:
         sys.exit(0)
 
 

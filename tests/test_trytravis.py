@@ -22,7 +22,7 @@ def test_version():
 def test_token_input():
     with mock.patch('sys.exit'):
         with mock.patch('getpass.getpass') as mock_getpass:
-            mock_getpass.return_value = 'abc123'
+            mock_getpass.return_value = 'x' * 40
             trytravis.config_dir = os.path.dirname(os.path.abspath(__file__))
 
             trytravis.main(['--token'])
@@ -30,7 +30,7 @@ def test_token_input():
             assert os.path.isfile(os.path.join(trytravis.config_dir, 'personal_access_token'))
             
             with open(os.path.join(trytravis.config_dir, 'personal_access_token'), 'r') as f:
-                assert f.read() == 'abc123'
+                assert f.read() == 'x' * 40
 
             os.remove(os.path.join(trytravis.config_dir, 'personal_access_token'))
 
@@ -38,11 +38,16 @@ def test_token_input():
 def test_token_command_line():
     with mock.patch('sys.exit'):
         trytravis.config_dir = os.path.dirname(os.path.abspath(__file__))
-        trytravis.main(['--token', 'abc123'])
+        trytravis.main(['--token', 'x' * 40])
 
         assert os.path.isfile(os.path.join(trytravis.config_dir, 'personal_access_token'))
 
         with open(os.path.join(trytravis.config_dir, 'personal_access_token'), 'r') as f:
-            assert f.read() == 'abc123'
+            assert f.read() == 'x' * 40
 
         os.remove(os.path.join(trytravis.config_dir, 'personal_access_token'))
+
+
+def test_token_not_long_enough():
+    with pytest.raises(RuntimeError):
+        trytravis.main(['--token', 'abc123'])
