@@ -4,15 +4,15 @@ sudo: false
 matrix:
   include:
     # Linting
-    - python: 2.7
-      env: TOXENV=lint
+    - python: 2.7 
+      env: TOXENV=lint 
 
 install:
   - exit 1
 
 notifications:
-  email: false
+  email: false 
 
-branches:
+branches: 
   only:
-  - master
+  - master 
