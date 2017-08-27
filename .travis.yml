@@ -5,7 +5,7 @@ matrix:
   include:
     # Linting
     - python: 2.7
-      env: TOXENV=lint
+      env: TOXENV=lint 
 
 install:
   - exit 1
