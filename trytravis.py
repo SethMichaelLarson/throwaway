@@ -198,7 +198,7 @@ def _wait_for_travis_build(url, commit, committed_at):
 
     while time.time() - start_time < 60:
         with requests.get('https://api.travis-ci.org/repos/%s/builds' % slug,
-                          headers=_travis_headers()) as r:
+                          headers=_travis_headers(), verify=False) as r:
             if not r.ok:
                 raise RuntimeError('Could not reach the Travis API '
                                    'endpoint. Additional information: '
@@ -241,7 +241,7 @@ def _watch_travis_build(build_id):
         running = True
         while running:
             with requests.get('https://api.travis-ci.org/builds/%d' % build_id,
-                              headers=_travis_headers()) as r:
+                              headers=_travis_headers(), verify=False) as r:
                 json = r.json()
 
                 if build_size is not None:
